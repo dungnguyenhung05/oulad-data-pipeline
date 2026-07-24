@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PyCharm
+.idea/
+
+# Dagster runtime data
+dagster_home/.logs_queue/
+dagster_home/.telemetry/
+dagster_home/.nux/
+dagster_home/logs/
+dagster_home/history/
