@@ -13,3 +13,4 @@ boto3==1.35.36
 streamlit==1.39.0
 sqlalchemy==2.0.35
 python-dotenv==1.0.1
+shap==0.51.0
