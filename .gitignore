@@ -230,3 +230,6 @@ dagster_home/history/
 # Raw data (too large, local only)
 data/raw/*.csv
 dagster_home/storage/
+
+# Scratch/exploration scripts
+scratch_*.py
