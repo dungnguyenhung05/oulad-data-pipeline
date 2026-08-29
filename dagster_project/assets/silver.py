@@ -12,7 +12,7 @@ def silver_student_vle_enriched(
 ) -> pd.DataFrame:
 
     rows_before = len(bronze_student_vle)
-    df_merge = pd.merge(bronze_student_vle, bronze_vle, on="id_site", how="left")
+    df_merge = pd.merge(bronze_student_vle, bronze_vle, on=["id_site", "code_module", "code_presentation"], how="left")
     rows_after = len(df_merge)
 
     context.add_output_metadata({
@@ -57,3 +57,5 @@ def silver_student_registration_clean(
     })
 
     return bronze_student_registration
+
+
