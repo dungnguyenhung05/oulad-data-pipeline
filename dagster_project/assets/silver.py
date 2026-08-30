@@ -41,21 +41,4 @@ def silver_student_assessment_enriched(
 
     return df_merge
 
-@asset(group_name="silver", io_manager_key="silver_io_manager")
-def silver_student_registration_clean(
-        context: AssetExecutionContext,
-        bronze_student_registration: pd.DataFrame,
-) -> pd.DataFrame:
-    rows_before = len(bronze_student_registration)
-
-    bronze_student_registration = bronze_student_registration.drop_duplicates(subset=["id_student", "code_module", "code_presentation"])
-    rows_after = len(bronze_student_registration)
-    context.add_output_metadata({
-        "rows_before": MetadataValue.int(rows_before),
-        "rows_after": MetadataValue.int(rows_after),
-        "rows_removed": MetadataValue.int(rows_before - rows_after)
-    })
-
-    return bronze_student_registration
-
 

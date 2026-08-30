@@ -39,7 +39,7 @@ def _parquet_path(bucket: str, asset_name: str) -> str:
 
 # Tao base cho bang gold
 def get_base_population(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    path = _parquet_path(SILVER_BUCKET, "silver_student_registration_clean")
+    path = _parquet_path(BRONZE_BUCKET, "bronze_student_registration")
     query = f"""
         SELECT id_student, code_module, code_presentation, date_registration
         FROM read_parquet('{path}')
@@ -174,7 +174,7 @@ def build_gold_features(context: AssetExecutionContext, asset_name: str) -> pd.D
 
 
 _gold_deps = [
-    AssetKey("silver_student_registration_clean"),
+    AssetKey("bronze_student_registration"),
     AssetKey("bronze_student_info"),
     AssetKey("bronze_assessments"),
     AssetKey("silver_student_vle_enriched"),

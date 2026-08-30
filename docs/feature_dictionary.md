@@ -6,6 +6,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 
 - **Referential integrity:** 0 giá trị mồ côi (orphan) ở toàn bộ 5 cặp khóa ngoại đã kiểm tra (`student_registration`/`student_assessment`/`student_vle` → `student_info`; `student_assessment` → `assessments`; `student_vle` → `vle`). → Xác nhận LEFT JOIN ở Silver an toàn, không mất dữ liệu.
 - **`student_vle`:** 2,195,960 dòng trùng theo khóa `(id_student, code_module, code_presentation, id_site, date)` (~20.6% tổng số dòng) — đây là đặc điểm gốc của dữ liệu (nhiều lượt ghi nhận click trong cùng ngày), **không phải lỗi**. Không xử lý ở Silver vì Gold sẽ `SUM(sum_click)` theo nhóm nên không ảnh hưởng kết quả.
+- **`student_registration`:** đã kiểm tra `duplicated(subset=["id_student","code_module","code_presentation"])` = 0 dòng trùng — khóa tự nhiên này là duy nhất trong dữ liệu gốc OULAD. Vì vậy **không tồn tại asset Silver riêng cho bảng này** (xem ghi chú ở mục Base Population bên dưới) — tương tự lý do đã bỏ asset Silver demographic.
 - **`student_registration.date_unregistration`** thiếu 69.1% — có ý nghĩa nghiệp vụ (sinh viên không rút môn), không phải lỗi dữ liệu, không xử lý.
 - **`student_assessment.score`:** phát hiện sai kiểu dữ liệu (`object` thay vì số) ở Bronze — đã sửa trong `standard_bronze()`. Sau khi ép kiểu bằng `pd.to_numeric(errors='coerce')`: 173/173,912 dòng (0.1%) không parse được thành số, tỷ lệ chấp nhận được, không điều tra thêm.
 - **Miền giá trị:** `final_result`, `gender`, `age_band` đều đúng domain knowledge kỳ vọng, không có giá trị lạ. `score` sau khi sửa: min=0.0, max=100.0 — hợp lệ. `sum_click`: min=1, max=6977, không có giá trị âm.
@@ -26,7 +27,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 *(Ghi chú đã biết: các kỳ học ngắn hơn 84 ngày sẽ khiến `cutoff12` gần tương đương toàn bộ dữ liệu kỳ đó, giảm ý nghĩa "cảnh báo sớm" — hạn chế đã chấp nhận, ghi vào phần Hạn chế của báo cáo.)*
 
 **Grain:** 1 dòng = 1 `id_student` + 1 `code_module` + 1 `code_presentation` + 1 mốc cutoff.
-**Base Population:** xuất phát từ `silver_student_registration_clean` (LEFT JOIN mọi nguồn khác vào) — đảm bảo giữ lại cả sinh viên không tương tác gì.
+**Base Population:** xuất phát từ **`bronze_student_registration`** (đọc trực tiếp, không qua asset Silver — xem lý do ở Phần 1), LEFT JOIN mọi nguồn khác vào — đảm bảo giữ lại cả sinh viên không tương tác gì.
 **Công cụ xử lý:** DuckDB (predicate pushdown, đọc trực tiếp Parquet trên MinIO qua `httpfs`) — thay cho pandas thuần, giải quyết lỗi Out of Memory khi xử lý `silver_student_vle_enriched` (433MB gốc) ở `cutoff8`/`cutoff12`.
 
 ### Nhóm Engagement (nguồn: `silver_student_vle_enriched`, lọc `date <= cutoff_day`)
@@ -55,9 +56,9 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 
 *Ghi chú riêng: bài Exam không có `date` (hạn nộp) cố định (NaN trong `assessments`) → tự động bị loại khỏi `num_assigned` ở mọi cutoff. Đây là hành vi **đúng mong muốn** (Exam luôn diễn ra sau mọi mốc cutoff sớm), không phải lỗi cần sửa.*
 
-### Nhóm Demographic & Registration (nguồn: `bronze_student_info` + `silver_student_registration_clean`, KHÔNG cutoff — thuộc tính tĩnh)
+### Nhóm Demographic & Registration (nguồn: `bronze_student_info` + `bronze_student_registration`, KHÔNG cutoff — thuộc tính tĩnh)
 
-> Demographic đọc **trực tiếp từ `bronze_student_info`** qua DuckDB, không có asset Silver riêng — vì đây chỉ là chọn cột (column pruning), không có logic clean/join/dedup nào (đã kiểm tra `bronze_student_info` không có dòng trùng ở Phần 1), không thỏa lý do để tồn tại 1 tầng Silver riêng biệt. Cùng nguyên tắc đã áp dụng cho `courses`/`assessments`/`vle` (không có Silver asset riêng cho các bảng danh mục không cần biến đổi).
+> Cả 2 nguồn đọc **trực tiếp từ tầng Bronze** qua DuckDB, không có asset Silver riêng cho chúng — vì cả hai đều không có logic clean/join/dedup thực sự cần thiết (đã kiểm tra `bronze_student_info` không có dòng trùng, `bronze_student_registration` không trùng theo khóa nghiệp vụ ở Phần 1), không thỏa lý do để tồn tại 1 tầng Silver riêng biệt. Cùng nguyên tắc đã áp dụng cho `courses`/`assessments`/`vle` (không có Silver asset riêng cho các bảng danh mục/thuộc tính tĩnh không cần biến đổi thật sự).
 
 | feature_name | description | data_type | source | calculation | cutoff_rule | leakage_note |
 |---|---|---|---|---|---|---|
@@ -68,7 +69,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 | `num_of_prev_attempts` | Số lần đã học lại môn này trước đó | int | bronze_student_info | lấy trực tiếp | Không áp dụng | Tín hiệu rủi ro mạnh, biết được ngay từ đầu kỳ nên không leakage |
 | `studied_credits` | Tổng số tín chỉ đang học trong kỳ | int | bronze_student_info | lấy trực tiếp | Không áp dụng | — |
 | `disability` | Sinh viên có khuyết tật hay không (Y/N) | category | bronze_student_info | lấy trực tiếp | Không áp dụng | — |
-| `date_registration` | Ngày đăng ký môn học (tương đối so với ngày khai giảng) | int | silver_student_registration_clean | lấy trực tiếp (đưa vào Base Population ngay từ đầu, không tách riêng) | Không áp dụng | Biết trước cutoff sớm nhất (đăng ký luôn diễn ra trước/đầu kỳ) |
+| `date_registration` | Ngày đăng ký môn học (tương đối so với ngày khai giảng) | int | **bronze_student_registration** | lấy trực tiếp, đưa vào Base Population ngay từ đầu (`get_base_population`) | Không áp dụng | Biết trước cutoff sớm nhất (đăng ký luôn diễn ra trước/đầu kỳ) |
 
 ### Quy tắc điền giá trị thiếu (áp dụng thống nhất trong `fill_missing_gold`, sau khi đã merge toàn bộ nguồn vào base)
 
@@ -89,7 +90,29 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 4. Assessment (catalog): `num_assigned` tính độc lập ở cấp môn học từ `bronze_assessments`, JOIN vào mọi sinh viên cùng môn/kỳ học bất kể họ có nộp bài hay không — tránh nhầm "không nộp gì" thành "không có gì được giao".
 5. Mỗi mốc cutoff có 1 model ML riêng biệt — không gộp dữ liệu nhiều mốc để train chung 1 model (cùng giá trị feature nhưng khác ý nghĩa rủi ro tùy mốc thời gian).
 
----
-### Staging
+### Nguyên tắc chung: khi nào 1 bảng KHÔNG cần asset Silver riêng
 
-- 4 bảng Gold giờ có bản sao trong oulad_dwh.staging_ml, dùng làm nguồn cho dbt (mart_ml)
+Áp dụng nhất quán cho `courses`, `assessments`, `vle`, `student_info` (demographic), và `student_registration` — tất cả đọc thẳng từ Bronze ở các tầng sau, **không có asset Silver trung gian**. Điều kiện để bỏ qua Silver: bảng không cần dedup (đã xác nhận qua EDA), không cần LEFT JOIN với bảng nào khác, không cần biến đổi/enrich cột nào. Nếu chỉ "chọn cột" (column pruning) hoặc "copy nguyên vẹn", việc đó có thể thực hiện trực tiếp ở tầng đọc dữ liệu (DuckDB query trong Gold, hoặc asset Staging) mà không cần thêm 1 tầng trung gian không mang giá trị biến đổi thực sự.
+
+---
+
+## Phần 3 — Postgres Staging
+
+### Schema `staging_ml` (database `oulad_dwh`) — phục vụ nhánh ML
+
+4 bảng Gold có bản sao trong `oulad_dwh.staging_ml`, dùng làm nguồn cho dbt (`mart_ml`): `stg_gold_features_cutoff2/4/8/12`. Cơ chế ghi: Truncate + Insert (Idempotent), tự tạo bảng ở lần chạy đầu tiên nếu chưa tồn tại.
+
+### Schema `staging_dashboard` (database `oulad_dwh`) — phục vụ nhánh Dashboard (đang triển khai)
+
+Nạp trực tiếp từ Silver/Bronze (không qua Gold, không cutoff) để phục vụ `mart_dashboard`:
+
+| Bảng staging | Nguồn | Lý do cần |
+|---|---|---|
+| `stg_silver_student_vle_enriched` | silver_student_vle_enriched | Xu hướng tương tác VLE theo thời gian (full-period) |
+| `stg_silver_student_assessment_enriched` | silver_student_assessment_enriched | Kết quả nộp bài (hành vi cá nhân, full-period) |
+| `stg_bronze_student_registration` | bronze_student_registration | Base population + `date_registration` (đổi từ `silver_student_registration_clean` sau khi asset đó bị loại bỏ — xem Phần 1) |
+| `stg_bronze_student_info` | bronze_student_info | Demographic + **`final_result`** (Dashboard cần hiển thị Pass/Fail/Withdrawn, khác Gold nghiêm cấm dùng làm feature) |
+| `stg_bronze_courses` | bronze_courses | Thông tin môn học cho `dim_course` |
+| `stg_bronze_assessments` | bronze_assessments | Catalog bài kiểm tra — **bắt buộc phải staging riêng** vì `dbt-postgres` không đọc được Parquet trên MinIO trực tiếp (khác Gold dùng DuckDB); cần cho `fact_student_performance.num_assigned`, áp dụng đúng nguyên tắc tách nguồn đã học ở Gold (không tính từ `student_assessment`) |
+
+staging_dashboard đã hoàn thành. Dùng kỹ thuật COPY (qua psycopg2 copy_expert) cho bảng stg_silver_student_vle_enriched thay vì to_sql(method="multi") mặc định, giúp giảm thời gian materialize từ 27 phút xuống 50s (do bảng có ~10.6 triệu dòng, INSERT nhiều lô tốn quá nhiều round-trip qua mạng Docker).
