@@ -90,7 +90,6 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 5. Mỗi mốc cutoff có 1 model ML riêng biệt — không gộp dữ liệu nhiều mốc để train chung 1 model (cùng giá trị feature nhưng khác ý nghĩa rủi ro tùy mốc thời gian).
 
 ---
+### Staging
 
-## Phần 3 — Đang chờ hoàn thiện (chưa chốt, cập nhật sau)
-
-- **`fact_student_performance`** (mart_dashboard, dbt, từ Silver, KHÔNG cutoff) — bộ feature riêng cho Dashboard Module 1, **không dùng lại nguyên `days_since_last_activity`** (không có ý nghĩa với dữ liệu full-period). `num_assigned` ở Dashboard cũng cần áp dụng đúng nguyên tắc tách nguồn như Gold (lấy từ `assessments`, không lấy từ `student_assessment`) — sẽ viết dictionary riêng khi hoàn thành model dbt.
+- 4 bảng Gold giờ có bản sao trong oulad_dwh.staging_ml, dùng làm nguồn cho dbt (mart_ml)
