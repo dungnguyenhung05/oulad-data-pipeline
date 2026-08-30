@@ -14,7 +14,6 @@ from dagster_project.assets.bronze import (
 from dagster_project.assets.silver import (
     silver_student_vle_enriched,
     silver_student_assessment_enriched,
-    silver_student_registration_clean,
 )
 
 
@@ -26,10 +25,18 @@ from dagster_project.assets.gold import (
 
 
 from dagster_project.assets.staging import (
+    # ml
     stg_gold_features_cutoff2,
     stg_gold_features_cutoff4,
     stg_gold_features_cutoff8,
-    stg_gold_features_cutoff12
+    stg_gold_features_cutoff12,
+    # dashboard
+    stg_silver_student_assessment_enriched,
+    stg_silver_student_vle_enriched,
+    stg_bronze_student_registration,
+    stg_bronze_assessments,
+    stg_bronze_courses,
+    stg_bronze_student_info
 )
 from dagster_project.io_manager import MinioParquetIOManager
 
@@ -41,6 +48,7 @@ minio_resource = get_minio_resource()
 
 defs = Definitions(
     assets=[
+        # bronze
         bronze_student_info,
         bronze_student_registration,
         bronze_student_assessment,
@@ -48,17 +56,25 @@ defs = Definitions(
         bronze_courses,
         bronze_vle,
         bronze_student_vle,
+        # silver
         silver_student_vle_enriched,
         silver_student_assessment_enriched,
-        silver_student_registration_clean,
+        # gold
         gold_features_cutoff2,
         gold_features_cutoff4,
         gold_features_cutoff8,
         gold_features_cutoff12,
+        # staging
         stg_gold_features_cutoff2,
         stg_gold_features_cutoff4,
         stg_gold_features_cutoff8,
-        stg_gold_features_cutoff12
+        stg_gold_features_cutoff12,
+        stg_silver_student_assessment_enriched,
+        stg_silver_student_vle_enriched,
+        stg_bronze_student_registration,
+        stg_bronze_assessments,
+        stg_bronze_courses,
+        stg_bronze_student_info
     ],
     resources={
         's3': minio_resource,
