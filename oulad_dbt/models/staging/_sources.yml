@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: staging_dashboard
+    schema: staging_dashboard
+    tables:
+      - name: stg_silver_student_vle_enriched
+      - name: stg_silver_student_assessment_enriched
+      - name: stg_bronze_student_registration
+      - name: stg_bronze_student_info
+      - name: stg_bronze_courses
+      - name: stg_bronze_assessments

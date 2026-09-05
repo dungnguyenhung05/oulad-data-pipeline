@@ -11,11 +11,18 @@ def standard_bronze(df):
     if 'score' in df.columns:
         df['score'] = pd.to_numeric(df['score'], errors='coerce')
 
+    if 'week_from' in df.columns:
+        df['week_from'] = pd.to_numeric(df['week_from'], errors='coerce')
+    if 'week_to' in df.columns:
+        df['week_to'] = pd.to_numeric(df['week_to'], errors='coerce')
+
     date_columns = [
         'date',
         'date_submitted',
         'date_registration',
-        'date_unregistration'
+        'date_unregistration',
+        'week_from',
+        'week_to'
     ]
 
     for col in date_columns:

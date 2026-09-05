@@ -19,7 +19,7 @@ KEYS = ["id_student", "code_module", "code_presentation"]
 
 def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
-    con.execute("INSTALL httpfs; LOAD httpfs;")
+    con.execute("LOAD httpfs;")  # khong install nua, install tu dau o dockerfile
 
     endpoint = os.environ["MINIO_ENDPOINT_URL"].replace("http://", "").replace("https://", "")
     con.execute(f"""
