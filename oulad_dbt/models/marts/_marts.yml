@@ -1,0 +1,145 @@
+version: 2
+
+models:
+  - name: dim_student
+    description: "Dimension sinh vien"
+    columns:
+      - name: student_key
+        description: "Surrogate key, đinh danh 1 version demographic"
+        tests:
+          - unique
+          - not_null
+      - name: id_student
+        description: "Business key"
+        tests:
+          - not_null
+
+  - name: dim_course
+    description: "Dimension hoc phan/ky hoc"
+    columns:
+      - name: course_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: code_module
+        tests:
+          - not_null
+      - name: code_presentation
+        tests:
+          - not_null
+
+  - name: dim_assessment
+    description: "Dimension bai kiem tra"
+    columns:
+      - name: assessment_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: id_assessment
+        tests:
+          - not_null
+      - name: course_key
+        description: "FK -> dim_course"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_course')
+              field: course_key
+
+  - name: dim_enrollment
+    description: "1 lan dang ky hoc — o giua dim_student - dim_course"
+    columns:
+      - name: enrollment_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: student_key
+        description: "FK -> dim_student"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_student')
+              field: student_key
+      - name: course_key
+        description: "FK -> dim_course"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_course')
+              field: course_key
+
+  - name: dim_time
+    description: "Thoi gian theo tuan, cho tung course/presentation"
+    columns:
+      - name: time_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: course_key
+        description: "FK -> dim_course"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_course')
+              field: course_key
+      - name: week_number
+        tests:
+          - not_null
+
+  - name: fact_student_course_result
+    description: "Ket qua hoc tap cuoi cung, grain 1 enrollment"
+    columns:
+      - name: enrollment_key
+        description: "FK -> dim_enrollment"
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('dim_enrollment')
+              field: enrollment_key
+      - name: final_result
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Pass', 'Fail', 'Withdrawn', 'Distinction']
+
+  - name: fact_assessment_submission
+    description: "sinh vien/assessment ( gom sinh vien chua nop)"
+    columns:
+      - name: enrollment_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_enrollment')
+              field: enrollment_key
+      - name: assessment_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_assessment')
+              field: assessment_key
+      - name: is_submitted
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+  - name: fact_student_behavior
+    description: "Hanh vi hoc tap theo tuan, incremental(khong cong don)"
+    columns:
+      - name: enrollment_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_enrollment')
+              field: enrollment_key
+      - name: time_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time_key
