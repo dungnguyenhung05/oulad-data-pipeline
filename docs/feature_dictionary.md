@@ -17,6 +17,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 - **`assessments.date` (Exam):** giá trị gốc là rỗng/NaN cho loại `Exam` (không có hạn nộp cố định) — **giữ nguyên NaN, không ép về 0** ở bất kỳ tầng nào. **Đính chính quan trọng (phát hiện muộn hơn khi làm `dim_assessment`):** không phải TOÀN BỘ bài Exam đều NULL — kiểm tra thực tế cho thấy chỉ **11/24 bài Exam** có `date = NULL` (khả năng là kỳ thi cuối kỳ thật, lịch riêng ngoài file này); **13/24 bài** vẫn có `date` cụ thể (khả năng là kiểm tra giữa kỳ, có lịch như CMA/TMA). `CMA`/`TMA` thì 100% có `date`. Nguyên tắc lọc `date <= cutoff_day` vẫn đúng bản chất cho cả 2 nhóm Exam, không cần sửa code — chỉ cần hiểu đúng là "phần lớn nhưng không phải toàn bộ" Exam bị loại khỏi cutoff sớm.
 - **Giá trị ngày âm** (`date`, `date_registration`...) là **bình thường** trong OULAD — tính tương đối so với ngày khai giảng (ngày 0), âm nghĩa là trước khai giảng.
 - **`vle.week_from`/`vle.week_to`:** dữ liệu gốc dùng ký tự `"?"` để biểu diễn giá trị thiếu (không phải NULL thật) — cùng quy ước với `assessments.date` (Exam). **Đã sửa** trong `standard_bronze()`: gộp vào cùng nhóm ép kiểu với các cột ngày, dùng `pd.to_numeric(errors='coerce').astype('Int64')` — chuẩn hóa `"?"` → NULL, ép kiểu số nguyên. 2 cột này hiện **chưa được sử dụng** ở Gold Layer hay mart_dashboard (metadata mô tả tuần thiết kế sử dụng tài nguyên VLE, khác với `date` là ngày tương tác thật) — có thể là hướng mở rộng phân tích sau này (so sánh sinh viên dùng tài liệu đúng/lệch tuần thiết kế).
+- **`student_info.imd_band`** (mới phát hiện — Sprint 3, khi kiểm tra kết quả hiển thị ở Streamlit Module 1): tồn tại **cùng 1 quy ước encoding thiếu dữ liệu** như `vle.week_from`/`week_to` — ký tự `"?"` thay cho NULL thật. Ngoài ra, phát hiện thêm 1 lỗi định dạng riêng: giá trị `"10-20"` **thiếu ký tự `%`** so với các giá trị còn lại trong cùng cột (`"0-10%"`, `"20-30%"`, `"30-40%"`, ...) — nhiều khả năng là lỗi gõ/export ở nguồn gốc OULAD, không phải lỗi xử lý của pipeline. **Đã sửa** trong `standard_bronze()`: `"?"` → NULL (nhất quán với quy ước điền `"Unknown"` ở tầng Gold cho nhóm cột categorical, xem Phần 2); `"10-20"` → `"10-20%"` để khớp định dạng chung của cột. Ảnh hưởng dây chuyền: `gold_features_cutoff2/4/8/12` (nhóm Demographic), `staging_ml`, `staging_dashboard` → `dim_student` (mart_dashboard) — **bắt buộc materialize lại toàn bộ chuỗi này sau khi sửa Bronze** (xem Phần 6).
 
 ---
 
@@ -68,7 +69,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 | feature_name | description | data_type | source | calculation | leakage_note |
 |---|---|---|---|---|---|
 | `age_band` | Nhóm tuổi sinh viên | category | bronze_student_info | lấy trực tiếp | — |
-| `imd_band` | Chỉ số mức độ thiếu thốn khu vực | category | bronze_student_info | lấy trực tiếp | — |
+| `imd_band` | Chỉ số mức độ thiếu thốn khu vực (định dạng chuẩn hóa: `"0-10%"`, `"10-20%"`, ..., `"90-100%"`) | category | bronze_student_info | lấy trực tiếp — **đã chuẩn hóa ở Bronze**: `"?"` → NULL (thiếu dữ liệu thật), `"10-20"` → `"10-20%"` (đồng bộ định dạng `%` với các giá trị còn lại) | Xem chi tiết phát hiện + fix ở Phần 1 và Phần 6 |
 | `highest_education` | Trình độ học vấn cao nhất | category | bronze_student_info | lấy trực tiếp | — |
 | `region` | Vùng miền sinh sống | category | bronze_student_info | lấy trực tiếp | — |
 | `num_of_prev_attempts` | Số lần đã học lại môn này trước đó | int | bronze_student_info | lấy trực tiếp | Tín hiệu rủi ro mạnh, biết được ngay từ đầu kỳ nên không leakage |
@@ -81,7 +82,7 @@ Khảo sát thực hiện trên toàn bộ 7 bảng Bronze trước khi thiết 
 | Nhóm cột | Cách xử lý khi NaN | Lý do |
 |---|---|---|
 | `total_click, active_days, active_site, activity_types, num_assigned, num_submission, num_late_submissions, num_of_prev_attempts, studied_credits` | Điền **0** | Không tương tác/không có bài = 0 thật |
-| `age_band, imd_band, highest_education, region, disability` | Điền **"Unknown"** | Categorical thiếu |
+| `age_band, imd_band, highest_education, region, disability` | Điền **"Unknown"** | Categorical thiếu — với `imd_band`, áp dụng SAU khi `"?"` đã được chuẩn hóa về NULL ở Bronze (xem Phần 1) |
 | `avg_click_per_day, avg_score, submission_rate` | **Giữ nguyên NaN** | "Không có gì để tính" ≠ "kết quả = 0" |
 | `days_since_last_activity` | Điền = **`cutoff_day`** | "Im lặng tối đa có thể quan sát được" |
 
@@ -145,7 +146,7 @@ Nạp trực tiếp từ Silver/Bronze (không qua Gold, không cutoff):
 |---|---|---|
 | `student_key` | Surrogate key, định danh 1 version | Sinh ra — `ROW_NUMBER() OVER (ORDER BY id_student, effective_from_presentation)` |
 | `id_student` | Business key gốc | Có sẵn |
-| `gender`, `highest_education`, `imd_band`, `age_band`, `region`, `disability` | Demographic | Có sẵn |
+| `gender`, `highest_education`, `imd_band`, `age_band`, `region`, `disability` | Demographic | Có sẵn — `imd_band` đã chuẩn hóa định dạng ở Bronze (xem Phần 1/2) trước khi tới đây |
 | `effective_from_presentation` | `code_presentation` bắt đầu version (TEXT, không phải DATE) | Suy ra — `MIN(code_presentation)` trong nhóm version |
 | `effective_to_presentation` | `code_presentation` kết thúc version | Suy ra — `MAX(code_presentation)` trong nhóm version |
 | `is_current` | Version mới nhất hay không | Suy ra — so với `MAX(effective_to_presentation)` toàn bộ của `id_student` |
@@ -291,6 +292,7 @@ dim_course ───┴──→ dim_assessment   ├──→ fact_student_beha
 5. `date_unregistration` không dùng làm feature ML — chỉ hợp lệ ở Dashboard.
 6. Thứ tự build: Dim độc lập (`dim_student`, `dim_course`) → `dim_assessment` (cần `dim_course`) → Dim phụ thuộc (`dim_enrollment`, `dim_time`) → Fact (`fact_student_course_result` → `fact_assessment_submission` → `fact_student_behavior`).
 7. Không phải toàn bộ Exam có `date = NULL` — chỉ ~46% (11/24); vẫn lọc đúng theo `date <= cutoff_day`/`date` như bình thường.
+8. `imd_band` hiển thị ở Dashboard (Streamlit/dim_student) đã chuẩn hóa `"?"` → NULL/Unknown và `"10-20"` → `"10-20%"` từ Bronze — nếu thấy dữ liệu cũ chưa đúng định dạng, kiểm tra lại đã materialize/re-run đủ chuỗi Bronze → Gold → Staging → dbt chưa (xem Phần 6).
 
 ---
 
@@ -303,6 +305,8 @@ dim_course ───┴──→ dim_assessment   ├──→ fact_student_beha
 - `relationships` cho mọi FK trỏ đúng dimension tương ứng.
 - `accepted_values` cho `final_result` (4 giá trị: Pass/Fail/Withdrawn/Distinction) và `is_submitted` (0/1).
 
+*Lưu ý khi thêm test cho `imd_band` (nếu có): danh sách giá trị hợp lệ sau chuẩn hóa là `"0-10%", "10-20%", "20-30%", ..., "90-100%"` + `"Unknown"` — không còn `"?"` hay `"10-20"` (thiếu `%`).*
+
 ### Singular test — canh gác demographic
 
 File `tests/assert_no_student_demographic_conflicts.sql` — loại trừ sẵn ca đã biết (`685015`), tự động fail nếu phát hiện thêm sinh viên có mâu thuẫn demographic mới (ở bất kỳ cột nào trong 6 cột) trong cùng 1 `code_presentation`, phòng khi dữ liệu nguồn thay đổi sau này.
@@ -311,9 +315,16 @@ File `tests/assert_no_student_demographic_conflicts.sql` — loại trừ sẵn 
 
 **PASS 100%** — xác nhận `mart_dashboard` đạt chất lượng, sẵn sàng cho tầng ứng dụng (Streamlit).
 
+
 ---
 
 ## Phần 6 — Hạ tầng: fix lỗi đã gặp
 
 - **DuckDB `httpfs` — `IOException: Extension not found`:** do `INSTALL httpfs` chạy ở runtime, phụ thuộc mạng lúc container khởi động. Đã sửa: `INSTALL httpfs` chuyển vào `Dockerfile` (build-time, chạy 1 lần, cache sẵn trong image); `gold.py` chỉ còn `LOAD httpfs` (runtime, không cần mạng).
 - **`from scratch_eda import week_from` trong `bronze.py`:** dòng import sót lại từ lúc test logic rời, khiến Dagster load definitions lỗi (`scratch_eda.py` tự chạy code kết nối MinIO bằng `localhost:9000` — sai địa chỉ khi chạy trong container). Đã xóa dòng import này — nhắc lại nguyên tắc: code asset chính thức không bao giờ import từ file `scratch_*.py` (không tồn tại trong image build thật).
+- **`student_info.imd_band` — sai định dạng (`"?"` thay NULL, `"10-20"` thiếu `%`):** phát hiện khi kiểm tra kết quả hiển thị ở Tab 2 (Nhân khẩu học) của Streamlit Module 1 — thấy 1 cột giá trị rời rạc `"?"` và 1 nhãn thiếu `%` so với các cột còn lại trên cùng biểu đồ. Đã sửa trong `standard_bronze()` (`dagster_project/assets/bronze.py`), cùng chỗ với logic chuẩn hóa `vle.week_from`/`week_to` (cùng 1 pattern `"?"` = giá trị thiếu trong OULAD). **Bắt buộc materialize lại theo đúng thứ tự phụ thuộc sau khi merge fix này:**
+  1. `bronze_student_info` (Dagster).
+  2. `gold_features_cutoff2/4/8/12` (đọc `bronze_student_info` cho nhóm Demographic).
+  3. Postgres Staging — `staging_ml` + `staging_dashboard` (Truncate+Insert, an toàn chạy lại).
+  4. `dbt run` lại `mart_dashboard` (ảnh hưởng `dim_student`), sau đó `dbt test` toàn bộ — xác nhận vẫn PASS 100%.
+  5. Kiểm tra lại Streamlit Module 1 (Tab 2 — IMD Band): cột `"?"` không còn xuất hiện riêng (gộp đúng vào nhóm NULL/Unknown), nhãn trục X đều có `%`.

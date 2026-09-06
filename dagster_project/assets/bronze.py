@@ -16,6 +16,9 @@ def standard_bronze(df):
     if 'week_to' in df.columns:
         df['week_to'] = pd.to_numeric(df['week_to'], errors='coerce')
 
+    if 'imd_band' in df.columns:
+        df['imd_band'] = df['imd_band'].replace({"10-20": "10-20%", "?": pd.NA})
+
     date_columns = [
         'date',
         'date_submitted',
