@@ -8,4 +8,8 @@ RUN python3 -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL http
 
 COPY . .
 
+WORKDIR /app/oulad_dbt
+RUN dbt deps && dbt parse
+WORKDIR /app
+
 CMD ["bash"]

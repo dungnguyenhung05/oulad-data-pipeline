@@ -15,7 +15,10 @@ class MinioParquetIOManager(ConfigurableIOManager):
         client = self.s3.get_client()
         existing = client.list_buckets().get("Buckets", [])
         if self.bucket_name not in [b["Name"] for b in existing]:
-            client.create_bucket(Bucket=self.bucket_name)
+            try:
+                client.create_bucket(Bucket=self.bucket_name)
+            except client.exceptions.BucketAlreadyOwnedByYou:
+                pass
 
         buffer = io.BytesIO()
         obj.to_parquet(buffer, index=False)

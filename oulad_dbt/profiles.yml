@@ -1,0 +1,12 @@
+oulad_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_APP_HOST', 'postgres') }}"
+      port: "{{ env_var('POSTGRES_APP_PORT', '5432') | as_number }}"
+      user: "{{ env_var('POSTGRES_APP_USER', 'placeholder') }}"
+      password: "{{ env_var('POSTGRES_APP_PASSWORD', 'placeholder') }}"
+      dbname: "{{ env_var('POSTGRES_APP_DB', 'oulad_dwh') }}"
+      schema: dbt_dev
+      threads: 4

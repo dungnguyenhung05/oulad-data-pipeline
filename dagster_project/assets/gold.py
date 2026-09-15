@@ -1,5 +1,6 @@
 import pandas as pd
-from dagster import asset, AssetExecutionContext, MetadataValue, AssetKey
+from dagster import (asset, AssetExecutionContext, MetadataValue,
+                     AssetKey, asset_check, AssetCheckResult)
 import duckdb
 import os
 
@@ -17,6 +18,15 @@ SILVER_BUCKET = "oulad-silver"
 KEYS = ["id_student", "code_module", "code_presentation"]
 
 
+COLS_FILL_ZERO = [
+    "total_click", "active_days", "active_site", "activity_types",
+    "num_assigned", "num_submission", "num_late_submissions",
+    "num_of_prev_attempts", "studied_credits", "weighted_score"
+]
+COLS_FILL_UNKNOWN = ["age_band", "imd_band", "highest_education", "region", "disability"]
+
+NOT_NULL_COLS = KEYS + COLS_FILL_ZERO + COLS_FILL_UNKNOWN + ["days_since_last_activity"]
+
 def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("LOAD httpfs;")  # khong install nua, install tu dau o dockerfile
@@ -32,14 +42,14 @@ def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
     return con
 
 # tao ten cho file parquet
-def _parquet_path(bucket: str, asset_name: str) -> str:
+def parquet_path(bucket: str, asset_name: str) -> str:
     return f"s3://{bucket}/{asset_name}/{asset_name}.parquet"
 
 
 
 # Tao base cho bang gold
 def get_base_population(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    path = _parquet_path(BRONZE_BUCKET, "bronze_student_registration")
+    path = parquet_path(BRONZE_BUCKET, "bronze_student_registration")
     query = f"""
         SELECT id_student, code_module, code_presentation, date_registration
         FROM read_parquet('{path}')
@@ -49,11 +59,12 @@ def get_base_population(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 # Feature cua bronze_student_info (Demographic) lay data tu bang bronze
 def get_demographic_features(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    path = _parquet_path(BRONZE_BUCKET, "bronze_student_info")
+    path = parquet_path(BRONZE_BUCKET, "bronze_student_info")
     query = f"""
         SELECT id_student, code_module, code_presentation,
                age_band, imd_band, highest_education, region,
-               num_of_prev_attempts, studied_credits, disability
+               num_of_prev_attempts, studied_credits, disability,
+               final_result
         FROM read_parquet('{path}')
     """
     return con.execute(query).df()
@@ -62,7 +73,7 @@ def get_demographic_features(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 # feature cua silver_student_vle_enriched (So luot click)
 def get_engagement_features(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> pd.DataFrame:
-    path = _parquet_path(SILVER_BUCKET, "silver_student_vle_enriched")
+    path = parquet_path(SILVER_BUCKET, "silver_student_vle_enriched")
     query = f"""
         SELECT
             id_student, code_module, code_presentation,
@@ -83,7 +94,7 @@ def get_engagement_features(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> 
 
 # Feature cua silver_student_assessment_enriched (So bai nop)
 def get_assignment_catalog(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> pd.DataFrame:
-    path = _parquet_path(BRONZE_BUCKET, "bronze_assessments")
+    path = parquet_path(BRONZE_BUCKET, "bronze_assessments")
     query = f"""
         SELECT code_module, code_presentation,
                COUNT(DISTINCT id_assessment) AS num_assigned
@@ -95,11 +106,12 @@ def get_assignment_catalog(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> p
 
 
 def get_assessment_features(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> pd.DataFrame:
-    path = _parquet_path(SILVER_BUCKET, "silver_student_assessment_enriched")
+    path = parquet_path(SILVER_BUCKET, "silver_student_assessment_enriched")
     query = f"""
         WITH submitted AS (
             SELECT * FROM read_parquet('{path}')
             WHERE date_submitted <= {cutoff_day}
+                AND date <= {cutoff_day}
         ),
         late AS (
             SELECT * FROM submitted WHERE date_submitted > date
@@ -108,6 +120,8 @@ def get_assessment_features(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> 
             s.id_student, s.code_module, s.code_presentation,
             COUNT(s.date_submitted) AS num_submission,
             AVG(s.score) AS avg_score,
+            -- Tính tổng điểm nhân trọng số tích lũy: sum(score * weight / 100)
+            SUM((COALESCE(s.score, 0) * COALESCE(s.weight, 0)) / 100.0) AS weighted_score,
             COUNT(DISTINCT l.id_assessment) AS num_late_submissions
         FROM submitted s
         LEFT JOIN late l
@@ -121,15 +135,10 @@ def get_assessment_features(con: duckdb.DuckDBPyConnection, cutoff_day: int) -> 
 
 # Xu ly 0/ NaN
 def fill_missing_gold(base: pd.DataFrame, cutoff_day: int) -> pd.DataFrame:
-    cols_fill_zero = [
-        "total_click", "active_days", "active_site", "activity_types",
-        "num_assigned", "num_submission", "num_late_submissions",
-        "num_of_prev_attempts", "studied_credits",
-    ]
-    cols_fill_unknown = ["age_band", "imd_band", "highest_education", "region", "disability"]
 
-    base[cols_fill_zero] = base[cols_fill_zero].fillna(0)
-    base[cols_fill_unknown] = base[cols_fill_unknown].fillna("Unknown")
+
+    base[COLS_FILL_ZERO] = base[COLS_FILL_ZERO].fillna(0)
+    base[COLS_FILL_UNKNOWN] = base[COLS_FILL_UNKNOWN].fillna("Unknown")
     # Them feature sau khi fillna 0
     base["submission_rate"] = base["num_submission"] / base["num_assigned"]
     # neu NaN thi so ngay im lang toi da la cutoff_day (khong dien 0)
@@ -203,3 +212,64 @@ def gold_features_cutoff12(context: AssetExecutionContext) -> pd.DataFrame:
 
 
 
+
+def checks(df: pd.DataFrame, cutoff_day: int) -> AssetCheckResult:
+    results = {}
+
+    invalid_cutoff = df[(df["active_days"] > 0) & (df["last_active_day"] > cutoff_day)]
+    results["cutoff_day_valid"] = bool(len(invalid_cutoff) == 0)
+
+    null_counts = df[NOT_NULL_COLS].isna().sum()
+    invalid_null = null_counts[null_counts > 0]
+    results["not_null"] = bool(len(invalid_null) == 0)
+
+    invalid_rate = df[~(df["submission_rate"].isna() | df["submission_rate"].between(0, 1))]
+    results["submission_rate_range"] = bool(len(invalid_rate) == 0)
+
+    invalid_score = df[~(df["avg_score"].isna() | df["avg_score"].between(0, 100))]
+    results["avg_score_range"] = bool(len(invalid_score) == 0)
+
+    invalid_weighted_score = df[~(df["weighted_score"].isna() | df["weighted_score"].between(0, 100))]
+    results["weighted_score_range"] = bool(len(invalid_weighted_score) == 0)
+
+    dup_count = df.duplicated(subset=KEYS).sum()
+    results["unique_key"] = bool(dup_count == 0)
+
+    all_passed = bool(all(results.values()))
+
+    return AssetCheckResult(
+        passed=all_passed,
+        metadata={
+            "cutoff_day": cutoff_day,
+            "cutoff_day_valid": results["cutoff_day_valid"],
+            "not_null": results["not_null"],
+            "not_null_count": int(df[NOT_NULL_COLS].isna().sum().sum()),
+            "submission_rate_range": results["submission_rate_range"],
+            "submission_rate_invalid_count": len(invalid_rate),
+            "avg_score_range": results["avg_score_range"],
+            "avg_score_invalid_count": len(invalid_score),
+            "weighted_score_range": results["weighted_score_range"],
+            "unique_key": results["unique_key"],
+            "duplicate_count": int(dup_count),
+        },
+    )
+
+
+@asset_check(asset=gold_features_cutoff2)
+def check_cutoff2(gold_features_cutoff2: pd.DataFrame) -> AssetCheckResult:
+    return checks(gold_features_cutoff2, GOLD_CONFIG["gold_features_cutoff2"]["cutoff_day"])
+
+
+@asset_check(asset=gold_features_cutoff4)
+def check_cutoff4(gold_features_cutoff4: pd.DataFrame) -> AssetCheckResult:
+    return checks(gold_features_cutoff4, GOLD_CONFIG["gold_features_cutoff4"]["cutoff_day"])
+
+
+@asset_check(asset=gold_features_cutoff8)
+def check_cutoff8(gold_features_cutoff8: pd.DataFrame) -> AssetCheckResult:
+    return checks(gold_features_cutoff8, GOLD_CONFIG["gold_features_cutoff8"]["cutoff_day"])
+
+
+@asset_check(asset=gold_features_cutoff12)
+def check_cutoff12(gold_features_cutoff12: pd.DataFrame) -> AssetCheckResult:
+    return checks(gold_features_cutoff12, GOLD_CONFIG["gold_features_cutoff12"]["cutoff_day"])
