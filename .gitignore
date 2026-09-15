@@ -233,3 +233,9 @@ dagster_home/storage/
 
 # Scratch/exploration scripts
 scratch_*.py
+
+
+# ML Models
+ml/models/*
+!ml/models/**/metadata.json
+!ml/models/**/feature_importance.csv

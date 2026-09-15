@@ -7,6 +7,11 @@ from dagster_project.resources import get_postgres_engine
 # Nap df
 def write_staging_table(df: pd.DataFrame, table_name: str, schema: str, use_copy: bool = False) -> None:
     engine = get_postgres_engine()
+
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+
+
     with engine.connect() as conn:
         exists = conn.exec_driver_sql(
             f"SELECT EXISTS (SELECT 1 FROM information_schema.tables "
@@ -50,32 +55,6 @@ def build_staging_asset(
         "schema": schema,
         "table_name": table_name
     })
-
-
-
-# 4 asset cho ml
-@asset(group_name="staging_ml")
-def stg_gold_features_cutoff2(context: AssetExecutionContext, gold_features_cutoff2: pd.DataFrame) -> None:
-    build_staging_asset(context, gold_features_cutoff2,
-                        "stg_gold_features_cutoff2", "staging_ml")
-
-
-@asset(group_name="staging_ml")
-def stg_gold_features_cutoff4(context: AssetExecutionContext, gold_features_cutoff4: pd.DataFrame) -> None:
-    build_staging_asset(context, gold_features_cutoff4,
-                        "stg_gold_features_cutoff4", "staging_ml")
-
-
-@asset(group_name="staging_ml")
-def stg_gold_features_cutoff8(context: AssetExecutionContext, gold_features_cutoff8: pd.DataFrame) -> None:
-    build_staging_asset(context, gold_features_cutoff8,
-                        "stg_gold_features_cutoff8", "staging_ml")
-
-
-@asset(group_name="staging_ml")
-def stg_gold_features_cutoff12(context: AssetExecutionContext, gold_features_cutoff12: pd.DataFrame) -> None:
-    build_staging_asset(context, gold_features_cutoff12,
-                        "stg_gold_features_cutoff12", "staging_ml")
 
 
 
